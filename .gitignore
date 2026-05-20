@@ -1,0 +1,9 @@
+/.env
+
+.idea
+.vscode
+.history
+
+Thumbs.db
+.DS_Store
+.directory
