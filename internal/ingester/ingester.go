@@ -12,15 +12,18 @@ import (
 )
 
 const (
-	candleChanBufferSize = 4096
-	candleBufferSize     = 8192
-	candleBufferCount    = 16
-	flushInterval        = 1 * time.Second
-	flushTimeout         = 10 * time.Second
+	candleChanBufferSize   = 4096
+	candleBufferSize       = 8192
+	candleBufferCount      = 16
+	flushInterval          = 1 * time.Second
+	flushTimeout           = 10 * time.Second
+	symbolsRefreshInterval = 1 * time.Hour
 )
 
-type ExchangeSymbolWriter interface {
+type ExchangeSymbolsStorage interface {
 	SaveSymbols(ctx context.Context, symbols []domain.ExchangeSymbol) error
+
+	ExchangeSymbols(ctx context.Context, exchange domain.Exchange) ([]domain.ExchangeSymbol, error)
 }
 
 type CandleWriter interface {
@@ -28,10 +31,10 @@ type CandleWriter interface {
 }
 
 type CandleIngester struct {
-	Adapters             []exchange.Adapter
-	ExchangeSymbolWriter ExchangeSymbolWriter
-	CandleWriter         CandleWriter
-	CandleInterval       domain.Interval
+	Adapters               []exchange.Adapter
+	ExchangeSymbolsStorage ExchangeSymbolsStorage
+	CandleWriter           CandleWriter
+	CandleInterval         domain.Interval
 }
 
 func (ingester *CandleIngester) runAdapter(
@@ -44,7 +47,7 @@ func (ingester *CandleIngester) runAdapter(
 		return fmt.Errorf("get symbols for %q: %w", adapter.Name(), err)
 	}
 	slog.Info("fetched symbols", "exchange", adapter.Name(), "count", len(symbols))
-	err = ingester.ExchangeSymbolWriter.SaveSymbols(ctx, symbols)
+	err = ingester.ExchangeSymbolsStorage.SaveSymbols(ctx, symbols)
 	if err != nil {
 		return fmt.Errorf("save exchange symbols for %q: %w", adapter.Name(), err)
 	}
@@ -135,6 +138,45 @@ func (ingester *CandleIngester) consumeCandles(in <-chan []domain.Candle) error 
 	}
 }
 
+func (ingester *CandleIngester) runAdapterSymbolsRefreshOnce(
+	ctx context.Context,
+	adapter exchange.Adapter,
+) error {
+	cached, err := ingester.ExchangeSymbolsStorage.ExchangeSymbols(ctx, adapter.Name())
+	if err != nil {
+		return fmt.Errorf("load symbols for %q: %w", adapter.Name(), err)
+	}
+	symbols, err := adapter.AllSymbols(ctx, cached)
+	if err != nil {
+		return fmt.Errorf("get all symbols for %q: %w", adapter.Name(), err)
+	}
+	slog.Info("fetched all symbols", "exchange", adapter.Name(), "count", len(symbols))
+	err = ingester.ExchangeSymbolsStorage.SaveSymbols(ctx, symbols)
+	if err != nil {
+		return fmt.Errorf("save symbols for %q: %w", adapter.Name(), err)
+	}
+	return nil
+}
+
+func (ingester *CandleIngester) runAdapterSymbolsRefresh(
+	ctx context.Context,
+	adapter exchange.Adapter,
+) error {
+	ticker := time.NewTicker(symbolsRefreshInterval)
+	defer ticker.Stop()
+	for {
+		err := ingester.runAdapterSymbolsRefreshOnce(ctx, adapter)
+		if err != nil {
+			slog.Error("refresh adapter symbols", "err", err)
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
 func (ingester *CandleIngester) Run(ctx context.Context) error {
 	bufferedCandles := make(chan []domain.Candle, candleBufferCount)
 	candles := make(chan domain.Candle, candleChanBufferSize)
@@ -143,6 +185,9 @@ func (ingester *CandleIngester) Run(ctx context.Context) error {
 	for _, adapter := range ingester.Adapters {
 		g.Go(func() error {
 			return ingester.runAdapter(gctx, adapter, candles)
+		})
+		g.Go(func() error {
+			return ingester.runAdapterSymbolsRefresh(gctx, adapter)
 		})
 	}
 	g.Go(func() error {

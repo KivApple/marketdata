@@ -10,6 +10,7 @@ type (
 )
 
 const SymbolStatusTrading = SymbolStatus("TRADING")
+const SymbolStatusDelisted = SymbolStatus("DELISTED")
 
 type ExchangeSymbol struct {
 	Exchange    Exchange

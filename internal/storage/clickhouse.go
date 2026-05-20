@@ -96,6 +96,45 @@ func (ch *ClickHouse) SaveSymbols(ctx context.Context, symbols []domain.Exchange
 	return nil
 }
 
+func (ch *ClickHouse) ExchangeSymbols(ctx context.Context, exchange domain.Exchange) ([]domain.ExchangeSymbol, error) {
+	rows, err := ch.conn.Query(
+		ctx,
+		`SELECT symbol, base_asset, quote_asset, status, tick_size, step_size, min_notional
+		FROM exchange_symbols FINAL
+		WHERE exchange = ?
+		ORDER BY symbol`,
+		string(exchange),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query exchange symbols: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var symbols []domain.ExchangeSymbol
+	for rows.Next() {
+		var (
+			symbol, baseAsset, quoteAsset, status string
+			tickSize, stepSize, minNotional       float64
+		)
+		if err := rows.Scan(&symbol, &baseAsset, &quoteAsset, &status, &tickSize, &stepSize, &minNotional); err != nil {
+			return nil, fmt.Errorf("scan exchange symbol: %w", err)
+		}
+		symbols = append(symbols, domain.ExchangeSymbol{
+			Exchange:    exchange,
+			Symbol:      domain.Symbol(symbol),
+			BaseAsset:   baseAsset,
+			QuoteAsset:  quoteAsset,
+			Status:      domain.SymbolStatus(status),
+			TickSize:    tickSize,
+			StepSize:    stepSize,
+			MinNotional: minNotional,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate exchange symbols: %w", err)
+	}
+	return symbols, nil
+}
+
 func (ch *ClickHouse) SaveCandles(ctx context.Context, candles []domain.Candle) error {
 	if len(candles) == 0 {
 		return nil

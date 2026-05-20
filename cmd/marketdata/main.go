@@ -52,9 +52,9 @@ func run() error {
 		Adapters: []exchange.Adapter{
 			binanceAdapter,
 		},
-		ExchangeSymbolWriter: clickhouse,
-		CandleWriter:         clickhouse,
-		CandleInterval:       cfg.CandleInterval,
+		ExchangeSymbolsStorage: clickhouse,
+		CandleWriter:           clickhouse,
+		CandleInterval:         cfg.CandleInterval,
 	}
 	err = candleIngester.Run(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {
