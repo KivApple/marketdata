@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"marketdata/internal/domain"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -171,6 +172,56 @@ func (ch *ClickHouse) SaveCandles(ctx context.Context, candles []domain.Candle) 
 	}
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("send candles batch: %w", err)
+	}
+	return nil
+}
+
+func (ch *ClickHouse) GetBackfilledBy(
+	ctx context.Context,
+	exchange domain.Exchange,
+	symbol domain.Symbol,
+	interval domain.Interval,
+) (time.Time, error) {
+	rows, err := ch.conn.Query(
+		ctx,
+		`SELECT backfilled_by FROM backfill_status FINAL WHERE exchange = ? AND symbol = ? AND timeframe = ?`,
+		string(exchange),
+		string(symbol),
+		string(interval),
+	)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("query backfill status: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		return time.Time{}, nil
+	}
+	var backfilledBy time.Time
+	err = rows.Scan(&backfilledBy)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("scan backfill status: %w", err)
+	}
+	return backfilledBy, nil
+}
+
+func (ch *ClickHouse) SetBackfilledBy(
+	ctx context.Context,
+	exchange domain.Exchange,
+	symbol domain.Symbol,
+	interval domain.Interval,
+	backfilledBy time.Time,
+) error {
+	err := ch.conn.Exec(
+		ctx,
+		`INSERT INTO backfill_status (exchange, symbol, timeframe, backfilled_by) 
+		VALUES (?, ?, ?, ?)`,
+		string(exchange),
+		string(symbol),
+		string(interval),
+		backfilledBy,
+	)
+	if err != nil {
+		return fmt.Errorf("set backfill status: %w", err)
 	}
 	return nil
 }

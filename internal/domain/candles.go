@@ -2,26 +2,7 @@ package domain
 
 import "time"
 
-type (
-	Exchange     string
-	Symbol       string
-	Interval     string
-	SymbolStatus string
-)
-
-const SymbolStatusTrading = SymbolStatus("TRADING")
-const SymbolStatusDelisted = SymbolStatus("DELISTED")
-
-type ExchangeSymbol struct {
-	Exchange    Exchange
-	Symbol      Symbol
-	BaseAsset   string
-	QuoteAsset  string
-	Status      SymbolStatus
-	TickSize    float64
-	StepSize    float64
-	MinNotional float64
-}
+type Interval string
 
 type Candle struct {
 	Exchange            Exchange

@@ -2,10 +2,8 @@ package ingester
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"marketdata/internal/domain"
 	"marketdata/internal/exchange"
 	"time"
@@ -32,10 +30,28 @@ type CandleWriter interface {
 	SaveCandles(ctx context.Context, candles []domain.Candle) error
 }
 
+type BackfillStatusStorage interface {
+	GetBackfilledBy(
+		ctx context.Context,
+		exchange domain.Exchange,
+		symbol domain.Symbol,
+		interval domain.Interval,
+	) (time.Time, error)
+
+	SetBackfilledBy(
+		ctx context.Context,
+		exchange domain.Exchange,
+		symbol domain.Symbol,
+		interval domain.Interval,
+		backfilledBy time.Time,
+	) error
+}
+
 type CandleIngester struct {
 	Adapters               []exchange.Adapter
 	ExchangeSymbolsStorage ExchangeSymbolsStorage
 	CandleWriter           CandleWriter
+	BackfillStatusStorage  BackfillStatusStorage
 	CandleInterval         domain.Interval
 }
 
@@ -158,7 +174,7 @@ func (i *CandleIngester) consumeCandlesOnce(in <-chan []domain.Candle) (bool, er
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), flushTimeout)
 	defer cancel()
-	slog.Info("saving candles", "count", len(candles))
+	slog.Debug("saving candles", "count", len(candles))
 	if err := i.CandleWriter.SaveCandles(ctx, candles); err != nil {
 		return true, fmt.Errorf("save candles: %w", err)
 	}
@@ -179,10 +195,28 @@ func (i *CandleIngester) Run(ctx context.Context) error {
 	defer close(candles)
 	g, gctx := errgroup.WithContext(ctx)
 	for _, adapter := range i.Adapters {
-		sup := &adapterSupervisor{ingester: i, adapter: adapter, out: candles}
+		supervisor := &adapterSupervisor{
+			ingester: i,
+			out:      candles,
+			adapter:  adapter,
+		}
+		if i.BackfillStatusStorage != nil {
+			backfiller := &adapterBackfiller{
+				backfillStatusStorage: i.BackfillStatusStorage,
+				candleWriter:          i.CandleWriter,
+				candleInterval:        i.CandleInterval,
+				adapter:               adapter,
+			}
+			supervisor.backfiller = backfiller
+		}
 		g.Go(func() error {
-			return sup.run(gctx)
+			return supervisor.run(gctx)
 		})
+		if supervisor.backfiller != nil {
+			g.Go(func() error {
+				return supervisor.backfiller.run(gctx)
+			})
+		}
 	}
 	g.Go(func() error {
 		return i.bufferCandles(gctx, candles, bufferedCandles)
@@ -191,90 +225,4 @@ func (i *CandleIngester) Run(ctx context.Context) error {
 		return i.consumeCandles(bufferedCandles)
 	})
 	return g.Wait()
-}
-
-type adapterSupervisor struct {
-	ingester *CandleIngester
-	adapter  exchange.Adapter
-	out      chan<- domain.Candle
-
-	cancel context.CancelFunc
-	done   chan struct{}
-	active symbolSet
-}
-
-func (s *adapterSupervisor) stop() {
-	if s.cancel == nil {
-		return
-	}
-	s.cancel()
-	<-s.done
-	s.cancel, s.done = nil, nil
-}
-
-func (s *adapterSupervisor) start(ctx context.Context, next symbolSet) {
-	s.stop()
-	s.active = next
-	if len(next) == 0 {
-		slog.Warn("no active symbols, skipping stream", "exchange", s.adapter.Name())
-		return
-	}
-	sctx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	s.cancel, s.done = cancel, done
-	go func() {
-		defer close(done)
-		if err := s.ingester.streamCandlesFromAdapter(sctx, s.adapter, next, s.out); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Error("stream candles", "exchange", s.adapter.Name(), "err", err)
-		}
-	}()
-}
-
-func (s *adapterSupervisor) refresh(ctx context.Context) {
-	symbols, err := s.ingester.refreshAdapterSymbols(ctx, s.adapter)
-	if err != nil {
-		slog.Error("refresh symbols", "exchange", s.adapter.Name(), "err", err)
-		return
-	}
-	next := activeSymbolSet(symbols)
-	if s.cancel == nil || !maps.Equal(s.active, next) {
-		s.start(ctx, next)
-	}
-}
-
-func (s *adapterSupervisor) run(ctx context.Context) error {
-	defer s.stop()
-
-	if symbols, err := s.ingester.fetchAdapterSymbols(ctx, s.adapter); err != nil {
-		slog.Error("initial symbols", "exchange", s.adapter.Name(), "err", err)
-	} else {
-		s.start(ctx, activeSymbolSet(symbols))
-	}
-
-	ticker := time.NewTicker(symbolsRefreshInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-s.done:
-			s.cancel()
-			s.cancel, s.done = nil, nil
-		case <-ticker.C:
-			s.refresh(ctx)
-		}
-	}
-}
-
-type symbolSet = map[domain.Symbol]struct{}
-
-func activeSymbolSet(symbols []domain.ExchangeSymbol) symbolSet {
-	set := make(symbolSet, len(symbols))
-	for _, s := range symbols {
-		if s.Status == domain.SymbolStatusTrading {
-			set[s.Symbol] = struct{}{}
-		}
-	}
-	return set
 }

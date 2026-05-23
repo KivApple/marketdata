@@ -54,6 +54,7 @@ func run() error {
 		},
 		ExchangeSymbolsStorage: clickhouse,
 		CandleWriter:           clickhouse,
+		BackfillStatusStorage:  clickhouse,
 		CandleInterval:         cfg.CandleInterval,
 	}
 	err = candleIngester.Run(ctx)

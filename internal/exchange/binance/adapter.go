@@ -3,10 +3,12 @@ package binance
 import (
 	"context"
 	"fmt"
+	"iter"
 	"log/slog"
 	"marketdata/internal/domain"
 	"marketdata/internal/exchange"
 	"net/http"
+	"time"
 )
 
 const exchangeName = "binance"
@@ -106,6 +108,65 @@ func (a *Adapter) AllSymbols(ctx context.Context, cached []domain.ExchangeSymbol
 		out = append(out, symbol)
 	}
 	return out, nil
+}
+
+func (a *Adapter) Candles(
+	ctx context.Context,
+	req exchange.CandlesRequest,
+) iter.Seq2[domain.Candle, error] {
+	return func(yield func(domain.Candle, error) bool) {
+		maxOpenTime := req.From.Add(-1 * time.Millisecond)
+		recentTime := time.Now().Add(-24 * time.Hour)
+		if req.From.Before(recentTime) {
+			// S3 candle retrieval is slow, and we aren't expecting last 24 hours candles there anyway
+			for candle, err := range a.s3Client.getCandles(ctx, req, granularityMonthly, &maxOpenTime) {
+				if err != nil {
+					yield(domain.Candle{}, fmt.Errorf("get monthly candles: %w", err))
+					return
+				}
+				if !yield(candle, nil) {
+					return
+				}
+			}
+			for candle, err := range a.s3Client.getCandles(
+				ctx,
+				exchange.CandlesRequest{
+					Symbol:   req.Symbol,
+					Interval: req.Interval,
+					From:     maxOpenTime.Add(1 * time.Millisecond),
+					To:       req.To,
+				},
+				granularityDaily,
+				&maxOpenTime,
+			) {
+				if err != nil {
+					yield(domain.Candle{}, fmt.Errorf("get daily candles: %w", err))
+					return
+				}
+				if !yield(candle, nil) {
+					return
+				}
+			}
+		}
+		for candle, err := range a.apiClient.getCandles(
+			ctx,
+			exchange.CandlesRequest{
+				Symbol:   req.Symbol,
+				Interval: req.Interval,
+				From:     maxOpenTime.Add(1 * time.Millisecond),
+				To:       req.To,
+			},
+			&maxOpenTime,
+		) {
+			if err != nil {
+				yield(domain.Candle{}, fmt.Errorf("get live candles: %w", err))
+				return
+			}
+			if !yield(candle, nil) {
+				return
+			}
+		}
+	}
 }
 
 func (a *Adapter) StreamCandles(ctx context.Context, req exchange.StreamRequest, out chan<- domain.Candle) error {
