@@ -21,6 +21,6 @@ type Candle struct {
 	QuoteVolume         decimal.Decimal
 	TakerBuyBaseVolume  decimal.Decimal
 	TakerBuyQuoteVolume decimal.Decimal
-	TradeCount          int64
+	TradeCount          uint64
 	Closed              bool
 }

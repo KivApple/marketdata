@@ -53,7 +53,7 @@ type klineBody struct {
 	QuoteVolume string `json:"q"`
 	TakerBase   string `json:"V"`
 	TakerQuote  string `json:"Q"`
-	TradeCount  int64  `json:"n"`
+	TradeCount  uint64 `json:"n"`
 	LastTradeID int64  `json:"L"`
 	IsClosed    bool   `json:"x"`
 }

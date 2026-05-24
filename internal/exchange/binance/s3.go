@@ -201,59 +201,41 @@ func parseArchiveRow(rec []string, req exchange.CandlesRequest) (domain.Candle, 
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("open_time: %w", err)
 	}
-	open, err := decimal.NewFromString(rec[1])
-	if err != nil {
-		return domain.Candle{}, fmt.Errorf("open: %w", err)
-	}
-	high, err := decimal.NewFromString(rec[2])
-	if err != nil {
-		return domain.Candle{}, fmt.Errorf("high: %w", err)
-	}
-	low, err := decimal.NewFromString(rec[3])
-	if err != nil {
-		return domain.Candle{}, fmt.Errorf("low: %w", err)
-	}
-	closeP, err := decimal.NewFromString(rec[4])
-	if err != nil {
-		return domain.Candle{}, fmt.Errorf("close: %w", err)
-	}
-	volume, err := decimal.NewFromString(rec[5])
-	if err != nil {
-		return domain.Candle{}, fmt.Errorf("volume: %w", err)
-	}
 	// rec[6] is close_time - skip; we derive from interval
-	quoteVol, err := decimal.NewFromString(rec[7])
-	if err != nil {
-		return domain.Candle{}, fmt.Errorf("quote_volume: %w", err)
-	}
 	count, err := strconv.ParseUint(rec[8], 10, 64)
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("count: %w", err)
 	}
-	takerBuyVol, err := decimal.NewFromString(rec[9])
-	if err != nil {
-		return domain.Candle{}, fmt.Errorf("taker_buy_volume: %w", err)
+	candle := domain.Candle{
+		Exchange:   exchangeName,
+		Symbol:     req.Symbol,
+		Interval:   req.Interval,
+		OpenTime:   openTime,
+		TradeCount: count,
+		Closed:     true,
 	}
-	takerBuyQuoteVol, err := decimal.NewFromString(rec[10])
-	if err != nil {
-		return domain.Candle{}, fmt.Errorf("taker_buy_quote_volume: %w", err)
+	decFields := []struct {
+		name string
+		col  int
+		dst  *decimal.Decimal
+	}{
+		{"open", 1, &candle.Open},
+		{"high", 2, &candle.High},
+		{"low", 3, &candle.Low},
+		{"close", 4, &candle.Close},
+		{"volume", 5, &candle.BaseVolume},
+		{"quote_volume", 7, &candle.QuoteVolume},
+		{"taker_buy_volume", 9, &candle.TakerBuyBaseVolume},
+		{"taker_buy_quote_volume", 10, &candle.TakerBuyQuoteVolume},
 	}
-	return domain.Candle{
-		Exchange:            exchangeName,
-		Symbol:              req.Symbol,
-		Interval:            req.Interval,
-		OpenTime:            openTime,
-		Open:                open,
-		High:                high,
-		Low:                 low,
-		Close:               closeP,
-		BaseVolume:          volume,
-		QuoteVolume:         quoteVol,
-		TradeCount:          int64(count),
-		TakerBuyBaseVolume:  takerBuyVol,
-		TakerBuyQuoteVolume: takerBuyQuoteVol,
-		Closed:              true,
-	}, nil
+	for _, f := range decFields {
+		v, err := decimal.NewFromString(rec[f.col])
+		if err != nil {
+			return domain.Candle{}, fmt.Errorf("%s: %w", f.name, err)
+		}
+		*f.dst = v
+	}
+	return candle, nil
 }
 
 func parseArchive(

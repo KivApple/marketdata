@@ -253,62 +253,44 @@ func parseKlinesRow(row []any, req exchange.CandlesRequest) (domain.Candle, time
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("open_time: %w", err)
 	}
-	open, err := parseStringDecimal(1)
-	if err != nil {
-		return domain.Candle{}, time.Time{}, fmt.Errorf("open: %w", err)
-	}
-	high, err := parseStringDecimal(2)
-	if err != nil {
-		return domain.Candle{}, time.Time{}, fmt.Errorf("high: %w", err)
-	}
-	low, err := parseStringDecimal(3)
-	if err != nil {
-		return domain.Candle{}, time.Time{}, fmt.Errorf("low: %w", err)
-	}
-	closeP, err := parseStringDecimal(4)
-	if err != nil {
-		return domain.Candle{}, time.Time{}, fmt.Errorf("close: %w", err)
-	}
-	volume, err := parseStringDecimal(5)
-	if err != nil {
-		return domain.Candle{}, time.Time{}, fmt.Errorf("volume: %w", err)
-	}
 	closeTimeMs, err := asFloat(6)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("close_time: %w", err)
-	}
-	quoteVol, err := parseStringDecimal(7)
-	if err != nil {
-		return domain.Candle{}, time.Time{}, fmt.Errorf("quote_volume: %w", err)
 	}
 	countF, err := asFloat(8)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("count: %w", err)
 	}
-	takerBuyVol, err := parseStringDecimal(9)
-	if err != nil {
-		return domain.Candle{}, time.Time{}, fmt.Errorf("taker_buy_volume: %w", err)
+	candle := domain.Candle{
+		Exchange:   exchangeName,
+		Symbol:     req.Symbol,
+		Interval:   req.Interval,
+		OpenTime:   time.UnixMilli(int64(openTimeMs)).UTC(),
+		TradeCount: uint64(countF),
+		Closed:     true,
 	}
-	takerBuyQuoteVol, err := parseStringDecimal(10)
-	if err != nil {
-		return domain.Candle{}, time.Time{}, fmt.Errorf("taker_buy_quote_volume: %w", err)
+	decFields := []struct {
+		name string
+		col  int
+		dst  *decimal.Decimal
+	}{
+		{"open", 1, &candle.Open},
+		{"high", 2, &candle.High},
+		{"low", 3, &candle.Low},
+		{"close", 4, &candle.Close},
+		{"volume", 5, &candle.BaseVolume},
+		{"quote_volume", 7, &candle.QuoteVolume},
+		{"taker_buy_volume", 9, &candle.TakerBuyBaseVolume},
+		{"taker_buy_quote_volume", 10, &candle.TakerBuyQuoteVolume},
 	}
-	return domain.Candle{
-		Exchange:            exchangeName,
-		Symbol:              req.Symbol,
-		Interval:            req.Interval,
-		OpenTime:            time.UnixMilli(int64(openTimeMs)).UTC(),
-		Open:                open,
-		High:                high,
-		Low:                 low,
-		Close:               closeP,
-		BaseVolume:          volume,
-		QuoteVolume:         quoteVol,
-		TradeCount:          int64(countF),
-		TakerBuyBaseVolume:  takerBuyVol,
-		TakerBuyQuoteVolume: takerBuyQuoteVol,
-		Closed:              true,
-	}, time.UnixMilli(int64(closeTimeMs)).UTC(), nil
+	for _, f := range decFields {
+		v, err := parseStringDecimal(f.col)
+		if err != nil {
+			return domain.Candle{}, time.Time{}, fmt.Errorf("%s: %w", f.name, err)
+		}
+		*f.dst = v
+	}
+	return candle, time.UnixMilli(int64(closeTimeMs)).UTC(), nil
 }
 
 func (c *apiClient) getCandlesPage(
