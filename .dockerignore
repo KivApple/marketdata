@@ -1,0 +1,13 @@
+.git
+.gitignore
+.idea
+.vscode
+.history
+.claude
+.env
+.DS_Store
+Thumbs.db
+.directory
+Dockerfile
+.dockerignore
+build-and-push.sh
