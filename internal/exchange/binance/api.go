@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 const exchangeInfoURL = "https://api.binance.com/api/v3/exchangeInfo"
@@ -113,11 +115,11 @@ func (c *apiClient) doWithRetry(req *http.Request) (*http.Response, error) {
 	}
 }
 
-func parseFilterFloat(s string) (float64, error) {
+func parseFilterDecimal(s string) (decimal.Decimal, error) {
 	if s == "" {
-		return 0, nil
+		return decimal.Zero, nil
 	}
-	return strconv.ParseFloat(s, 64)
+	return decimal.NewFromString(s)
 }
 
 func decodeExchangeInfoFilter(m *domain.ExchangeSymbol, f map[string]any) error {
@@ -125,21 +127,21 @@ func decodeExchangeInfoFilter(m *domain.ExchangeSymbol, f map[string]any) error 
 	switch filterType {
 	case "PRICE_FILTER":
 		s, _ := f["tickSize"].(string)
-		v, err := parseFilterFloat(s)
+		v, err := parseFilterDecimal(s)
 		if err != nil {
 			return fmt.Errorf("%s tickSize: %w", m.Symbol, err)
 		}
 		m.TickSize = v
 	case "LOT_SIZE":
 		s, _ := f["stepSize"].(string)
-		v, err := parseFilterFloat(s)
+		v, err := parseFilterDecimal(s)
 		if err != nil {
 			return fmt.Errorf("%s stepSize: %w", m.Symbol, err)
 		}
 		m.StepSize = v
 	case "NOTIONAL", "MIN_NOTIONAL":
 		s, _ := f["minNotional"].(string)
-		v, err := parseFilterFloat(s)
+		v, err := parseFilterDecimal(s)
 		if err != nil {
 			return fmt.Errorf("%s minNotional: %w", m.Symbol, err)
 		}
@@ -239,35 +241,35 @@ func parseKlinesRow(row []any, req exchange.CandlesRequest) (domain.Candle, time
 		}
 		return v, nil
 	}
-	parseStringFloat := func(i int) (float64, error) {
+	parseStringDecimal := func(i int) (decimal.Decimal, error) {
 		s, err := asString(i)
 		if err != nil {
-			return 0, err
+			return decimal.Zero, err
 		}
-		return strconv.ParseFloat(s, 64)
+		return decimal.NewFromString(s)
 	}
 
 	openTimeMs, err := asFloat(0)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("open_time: %w", err)
 	}
-	open, err := parseStringFloat(1)
+	open, err := parseStringDecimal(1)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("open: %w", err)
 	}
-	high, err := parseStringFloat(2)
+	high, err := parseStringDecimal(2)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("high: %w", err)
 	}
-	low, err := parseStringFloat(3)
+	low, err := parseStringDecimal(3)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("low: %w", err)
 	}
-	closeP, err := parseStringFloat(4)
+	closeP, err := parseStringDecimal(4)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("close: %w", err)
 	}
-	volume, err := parseStringFloat(5)
+	volume, err := parseStringDecimal(5)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("volume: %w", err)
 	}
@@ -275,7 +277,7 @@ func parseKlinesRow(row []any, req exchange.CandlesRequest) (domain.Candle, time
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("close_time: %w", err)
 	}
-	quoteVol, err := parseStringFloat(7)
+	quoteVol, err := parseStringDecimal(7)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("quote_volume: %w", err)
 	}
@@ -283,11 +285,11 @@ func parseKlinesRow(row []any, req exchange.CandlesRequest) (domain.Candle, time
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("count: %w", err)
 	}
-	takerBuyVol, err := parseStringFloat(9)
+	takerBuyVol, err := parseStringDecimal(9)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("taker_buy_volume: %w", err)
 	}
-	takerBuyQuoteVol, err := parseStringFloat(10)
+	takerBuyQuoteVol, err := parseStringDecimal(10)
 	if err != nil {
 		return domain.Candle{}, time.Time{}, fmt.Errorf("taker_buy_quote_volume: %w", err)
 	}

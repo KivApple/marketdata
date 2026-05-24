@@ -11,12 +11,12 @@ import (
 	"math/rand"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/shopspring/decimal"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -80,7 +80,7 @@ func (k klineBody) toDomain() (domain.Candle, error) {
 	fields := []struct {
 		name string
 		raw  string
-		dst  *float64
+		dst  *decimal.Decimal
 	}{
 		{"open", k.Open, &candle.Open},
 		{"high", k.High, &candle.High},
@@ -92,7 +92,7 @@ func (k klineBody) toDomain() (domain.Candle, error) {
 		{"taker quote", k.TakerQuote, &candle.TakerBuyQuoteVolume},
 	}
 	for _, f := range fields {
-		v, err := strconv.ParseFloat(f.raw, 64)
+		v, err := decimal.NewFromString(f.raw)
 		if err != nil {
 			return domain.Candle{}, fmt.Errorf("%s: %w", f.name, err)
 		}

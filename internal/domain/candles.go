@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 type Interval string
 
@@ -9,14 +13,14 @@ type Candle struct {
 	Symbol              Symbol
 	Interval            Interval
 	OpenTime            time.Time
-	Open                float64
-	High                float64
-	Low                 float64
-	Close               float64
-	BaseVolume          float64
-	QuoteVolume         float64
-	TakerBuyBaseVolume  float64
-	TakerBuyQuoteVolume float64
+	Open                decimal.Decimal
+	High                decimal.Decimal
+	Low                 decimal.Decimal
+	Close               decimal.Decimal
+	BaseVolume          decimal.Decimal
+	QuoteVolume         decimal.Decimal
+	TakerBuyBaseVolume  decimal.Decimal
+	TakerBuyQuoteVolume decimal.Decimal
 	TradeCount          int64
 	Closed              bool
 }

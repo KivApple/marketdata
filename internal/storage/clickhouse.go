@@ -10,6 +10,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/pressly/goose/v3"
+	"github.com/shopspring/decimal"
 )
 
 type ClickHouseConfig struct {
@@ -114,7 +115,7 @@ func (ch *ClickHouse) ExchangeSymbols(ctx context.Context, exchange domain.Excha
 	for rows.Next() {
 		var (
 			symbol, baseAsset, quoteAsset, status string
-			tickSize, stepSize, minNotional       float64
+			tickSize, stepSize, minNotional       decimal.Decimal
 		)
 		if err := rows.Scan(&symbol, &baseAsset, &quoteAsset, &status, &tickSize, &stepSize, &minNotional); err != nil {
 			return nil, fmt.Errorf("scan exchange symbol: %w", err)

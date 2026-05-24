@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 const visionBaseUrl = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/"
@@ -199,28 +201,28 @@ func parseArchiveRow(rec []string, req exchange.CandlesRequest) (domain.Candle, 
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("open_time: %w", err)
 	}
-	open, err := strconv.ParseFloat(rec[1], 64)
+	open, err := decimal.NewFromString(rec[1])
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("open: %w", err)
 	}
-	high, err := strconv.ParseFloat(rec[2], 64)
+	high, err := decimal.NewFromString(rec[2])
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("high: %w", err)
 	}
-	low, err := strconv.ParseFloat(rec[3], 64)
+	low, err := decimal.NewFromString(rec[3])
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("low: %w", err)
 	}
-	closeP, err := strconv.ParseFloat(rec[4], 64)
+	closeP, err := decimal.NewFromString(rec[4])
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("close: %w", err)
 	}
-	volume, err := strconv.ParseFloat(rec[5], 64)
+	volume, err := decimal.NewFromString(rec[5])
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("volume: %w", err)
 	}
 	// rec[6] is close_time - skip; we derive from interval
-	quoteVol, err := strconv.ParseFloat(rec[7], 64)
+	quoteVol, err := decimal.NewFromString(rec[7])
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("quote_volume: %w", err)
 	}
@@ -228,11 +230,11 @@ func parseArchiveRow(rec []string, req exchange.CandlesRequest) (domain.Candle, 
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("count: %w", err)
 	}
-	takerBuyVol, err := strconv.ParseFloat(rec[9], 64)
+	takerBuyVol, err := decimal.NewFromString(rec[9])
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("taker_buy_volume: %w", err)
 	}
-	takerBuyQuoteVol, err := strconv.ParseFloat(rec[10], 64)
+	takerBuyQuoteVol, err := decimal.NewFromString(rec[10])
 	if err != nil {
 		return domain.Candle{}, fmt.Errorf("taker_buy_quote_volume: %w", err)
 	}

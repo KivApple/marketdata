@@ -1,5 +1,7 @@
 package domain
 
+import "github.com/shopspring/decimal"
+
 type (
 	Exchange     string
 	Symbol       string
@@ -15,7 +17,7 @@ type ExchangeSymbol struct {
 	BaseAsset   string
 	QuoteAsset  string
 	Status      SymbolStatus
-	TickSize    float64
-	StepSize    float64
-	MinNotional float64
+	TickSize    decimal.Decimal
+	StepSize    decimal.Decimal
+	MinNotional decimal.Decimal
 }
