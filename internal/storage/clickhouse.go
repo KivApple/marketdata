@@ -13,6 +13,11 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// maxPartitionsPerInsert keeps each INSERT under ClickHouse's
+// max_partitions_per_insert_block (default 100) for the monthly-partitioned
+// candles table. Long backfills on coarse timeframes (e.g. 1d) easily exceed it.
+const maxPartitionsPerInsert = 50
+
 type ClickHouseConfig struct {
 	DSN string `env:"DSN,required"`
 }
@@ -137,14 +142,11 @@ func (ch *ClickHouse) ExchangeSymbols(ctx context.Context, exchange domain.Excha
 	return symbols, nil
 }
 
-func (ch *ClickHouse) SaveCandles(ctx context.Context, candles []domain.Candle) error {
-	if len(candles) == 0 {
-		return nil
-	}
+func (ch *ClickHouse) sendCandles(ctx context.Context, candles []domain.Candle) error {
 	batch, err := ch.conn.PrepareBatch(
 		ctx,
-		`INSERT INTO candles 
-    	(exchange, symbol, timeframe, open_time, open, high, low, close, base_volume, quote_volume, 
+		`INSERT INTO candles
+    	(exchange, symbol, timeframe, open_time, open, high, low, close, base_volume, quote_volume,
     	 trade_count, taker_buy_base_volume, taker_buy_quote_volume)`,
 	)
 	if err != nil {
@@ -175,6 +177,31 @@ func (ch *ClickHouse) SaveCandles(ctx context.Context, candles []domain.Candle) 
 		return fmt.Errorf("send candles batch: %w", err)
 	}
 	return nil
+}
+
+func (ch *ClickHouse) SaveCandles(ctx context.Context, candles []domain.Candle) error {
+	if len(candles) == 0 {
+		return nil
+	}
+	months := make(map[int]struct{})
+	start := 0
+	for i, candle := range candles {
+		t := candle.OpenTime.UTC()
+		m := t.Year()*100 + int(t.Month())
+		if _, ok := months[m]; ok {
+			continue
+		}
+		if len(months) >= maxPartitionsPerInsert {
+			if err := ch.sendCandles(ctx, candles[start:i]); err != nil {
+				return err
+			}
+			start = i
+			months = map[int]struct{}{m: {}}
+			continue
+		}
+		months[m] = struct{}{}
+	}
+	return ch.sendCandles(ctx, candles[start:])
 }
 
 func (ch *ClickHouse) GetBackfilledBy(
