@@ -110,7 +110,7 @@ func (b *adapterBackfiller) runSymbolOnce(ctx context.Context, symbol domain.Sym
 		return err
 	}
 	if !lastSaved.IsZero() {
-		slog.Info(
+		slog.Debug(
 			"backfilled symbol",
 			"exchange", b.adapter.Name(),
 			"symbol", symbol,
@@ -127,6 +127,7 @@ func (b *adapterBackfiller) runOnce(ctx context.Context) {
 		return
 	}
 	start := time.Now()
+	slog.Info("backfill started", "exchange", b.adapter.Name())
 	var g errgroup.Group
 	g.SetLimit(parallelBackfillLimit)
 	for _, symbol := range symbols {
@@ -145,6 +146,7 @@ func (b *adapterBackfiller) runOnce(ctx context.Context) {
 	}
 	_ = g.Wait()
 	metrics.BackfillDuration.WithLabelValues(string(b.adapter.Name())).Set(time.Since(start).Seconds())
+	slog.Info("backfill finished", "exchange", b.adapter.Name())
 }
 
 func (b *adapterBackfiller) run(ctx context.Context) error {
