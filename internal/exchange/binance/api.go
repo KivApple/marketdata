@@ -86,6 +86,12 @@ func (c *apiClient) doWithRetry(req *http.Request) (*http.Response, error) {
 		if err == nil && !isRetryableStatus(resp.StatusCode) {
 			return resp, nil
 		}
+		if ctxErr := req.Context().Err(); ctxErr != nil {
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+			return nil, ctxErr
+		}
 		if attempt > apiMaxRetries {
 			return resp, err
 		}
