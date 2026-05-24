@@ -9,15 +9,22 @@ import (
 	"marketdata/internal/exchange"
 	"marketdata/internal/exchange/binance"
 	"marketdata/internal/ingester"
+	"marketdata/internal/metrics"
 	"marketdata/internal/storage"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/sync/errgroup"
 )
 
-const httpClientTimeout = 30 * time.Second
+const (
+	httpClientTimeout   = 30 * time.Second
+	httpShutdownTimeout = 5 * time.Second
+)
 
 func run() error {
 	slog.Info("market data")
@@ -26,6 +33,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+
+	metrics.RecordBuildInfo(metrics.ReadBuildInfo())
 
 	ctx, cancel := signal.NotifyContext(
 		context.Background(),
@@ -57,9 +66,39 @@ func run() error {
 		BackfillStatusStorage:  clickhouse,
 		CandleInterval:         cfg.CandleInterval,
 	}
-	err = candleIngester.Run(ctx)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.Handle("GET /api/metrics", promhttp.Handler())
+	srv := &http.Server{Addr: cfg.ListenAddr, Handler: mux}
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		err := candleIngester.Run(gctx)
+		if err != nil {
+			return fmt.Errorf("candle ingester: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		slog.Info("listening", "addr", cfg.ListenAddr)
+		err := srv.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("http server: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		<-gctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	})
+	err = g.Wait()
 	if err != nil && !errors.Is(err, context.Canceled) {
-		return fmt.Errorf("candle ingester: %w", err)
+		return err
 	}
 
 	slog.Info("shutdown")

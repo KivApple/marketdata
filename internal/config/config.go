@@ -12,6 +12,7 @@ import (
 type Config struct {
 	ClickHouse     storage.ClickHouseConfig `envPrefix:"CLICKHOUSE_"`
 	CandleInterval domain.Interval          `env:"CANDLE_INTERVAL" envDefault:"1m"`
+	ListenAddr     string                   `env:"LISTEN_ADDR" envDefault:":8080"`
 }
 
 func Load() (*Config, error) {

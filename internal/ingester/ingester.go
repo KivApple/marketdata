@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"marketdata/internal/domain"
 	"marketdata/internal/exchange"
+	"marketdata/internal/metrics"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -114,6 +115,7 @@ func (i *CandleIngester) refreshAdapterSymbols(
 		return cached, nil
 	}
 	slog.Info("fetched all symbols", "exchange", adapter.Name(), "count", len(symbols))
+	metrics.ExchangeSymbols.WithLabelValues(string(adapter.Name())).Set(float64(len(symbols)))
 	if err := i.ExchangeSymbolsStorage.SaveSymbols(ctx, symbols); err != nil {
 		slog.Error("save symbols", "exchange", adapter.Name(), "err", err)
 	}
@@ -132,7 +134,9 @@ func (i *CandleIngester) bufferCandles(
 	for {
 		select {
 		case candle := <-in:
+			metrics.CandlesIngestedTotal.WithLabelValues(string(candle.Exchange)).Inc()
 			if candle.Closed {
+				metrics.ClosedCandlesIngestedTotal.WithLabelValues(string(candle.Exchange)).Inc()
 				buffer = append(buffer, candle)
 				if len(buffer) >= candleBufferSize {
 					select {

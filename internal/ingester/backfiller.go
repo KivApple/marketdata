@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"marketdata/internal/domain"
 	"marketdata/internal/exchange"
+	"marketdata/internal/metrics"
 	"sync"
 	"time"
 
@@ -121,9 +122,14 @@ func (b *adapterBackfiller) runSymbolOnce(ctx context.Context, symbol domain.Sym
 }
 
 func (b *adapterBackfiller) runOnce(ctx context.Context) {
+	symbols := b.ongoingSymbols()
+	if len(symbols) == 0 {
+		return
+	}
+	start := time.Now()
 	var g errgroup.Group
 	g.SetLimit(parallelBackfillLimit)
-	for _, symbol := range b.ongoingSymbols() {
+	for _, symbol := range symbols {
 		g.Go(func() error {
 			if err := b.runSymbolOnce(ctx, symbol); err != nil && !errors.Is(err, context.Canceled) {
 				slog.Error(
@@ -132,11 +138,13 @@ func (b *adapterBackfiller) runOnce(ctx context.Context) {
 					"symbol", symbol,
 					"err", err,
 				)
+				metrics.BackfillErrorsTotal.WithLabelValues(string(b.adapter.Name())).Inc()
 			}
 			return nil
 		})
 	}
 	_ = g.Wait()
+	metrics.BackfillDuration.WithLabelValues(string(b.adapter.Name())).Set(time.Since(start).Seconds())
 }
 
 func (b *adapterBackfiller) run(ctx context.Context) error {
