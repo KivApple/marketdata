@@ -13,9 +13,9 @@ var (
 		},
 		[]string{"exchange"},
 	)
-	ExchangeTradingSymbols = promauto.NewGaugeVec(
+	TradingExchangeSymbols = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "exchange_trading_symbols",
+			Name: "trading_exchange_symbols",
 			Help: "The number of trading exchange symbols",
 		},
 		[]string{"exchange"},

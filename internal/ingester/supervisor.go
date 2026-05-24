@@ -34,7 +34,7 @@ func (s *adapterSupervisor) stop() {
 func (s *adapterSupervisor) start(ctx context.Context, next symbolSet) {
 	s.stop()
 	s.active = next
-	metrics.ExchangeTradingSymbols.WithLabelValues(string(s.adapter.Name())).Set(float64(len(next)))
+	metrics.TradingExchangeSymbols.WithLabelValues(string(s.adapter.Name())).Set(float64(len(next)))
 	if len(next) == 0 {
 		slog.Warn("no active symbols, skipping stream", "exchange", s.adapter.Name())
 		return
