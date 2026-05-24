@@ -28,12 +28,20 @@ const granularityMonthly = "monthly"
 const granularityDaily = "daily"
 const archiveDownloadTimeout = 5 * time.Minute
 
+// symbolsWithEmptyArchives lists symbols for which Binance is known to publish
+// 0-byte placeholder zips for months without trades. Empty archives for any
+// other symbol are treated as an error so we notice new occurrences.
+var symbolsWithEmptyArchives = map[domain.Symbol]struct{}{
+	"PORTOEUR": {},
+}
+
 type visionCommonPrefix struct {
 	Prefix string `xml:"Prefix"`
 }
 
 type visionContent struct {
-	Key string `xml:"Key"`
+	Key  string `xml:"Key"`
+	Size int64  `xml:"Size"`
 }
 
 type visionListResult struct {
@@ -318,8 +326,12 @@ func (c *s3Client) getCandles(
 				yield(domain.Candle{}, fmt.Errorf("list objects: %w", err))
 				return
 			}
+			_, allowEmpty := symbolsWithEmptyArchives[req.Symbol]
 			for _, item := range page.Contents {
 				if !strings.HasSuffix(item.Key, ".zip") {
+					continue
+				}
+				if item.Size == 0 && allowEmpty {
 					continue
 				}
 				period, err := dateFromKey(item.Key, granularity)
