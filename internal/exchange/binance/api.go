@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"log/slog"
 	"marketdata/internal/domain"
 	"marketdata/internal/exchange"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -17,6 +19,13 @@ import (
 
 const exchangeInfoURL = "https://api.binance.com/api/v3/exchangeInfo"
 const exchangeInfoTTL = 30 * time.Minute
+
+const (
+	apiMaxRetries      = 5
+	apiMinRetryBackoff = 1 * time.Second
+	apiMaxRetryBackoff = 60 * time.Second
+	apiMaxRetryAfter   = 5 * time.Minute
+)
 
 type exchangeInfoSymbol struct {
 	Symbol     string           `json:"symbol"`
@@ -44,6 +53,63 @@ type apiClient struct {
 func newAPIClient(httpClient *http.Client) *apiClient {
 	return &apiClient{
 		httpClient: httpClient,
+	}
+}
+
+func parseRetryAfter(h string) (time.Duration, bool) {
+	if h == "" {
+		return 0, false
+	}
+	if secs, err := strconv.Atoi(h); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second, true
+	}
+	if t, err := http.ParseTime(h); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d, true
+		}
+	}
+	return 0, false
+}
+
+func isRetryableStatus(code int) bool {
+	return code == http.StatusTooManyRequests || // 429
+		code == http.StatusTeapot || // 418 (Binance IP ban)
+		code >= 500
+}
+
+func (c *apiClient) doWithRetry(req *http.Request) (*http.Response, error) {
+	backoff := apiMinRetryBackoff
+	for attempt := 1; ; attempt++ {
+		resp, err := c.httpClient.Do(req)
+		if err == nil && !isRetryableStatus(resp.StatusCode) {
+			return resp, nil
+		}
+		if attempt > apiMaxRetries {
+			return resp, err
+		}
+		wait := backoff/2 + time.Duration(rand.Int63n(max(1, int64(backoff/2))))
+		var status int
+		if resp != nil {
+			status = resp.StatusCode
+			if ra, ok := parseRetryAfter(resp.Header.Get("Retry-After")); ok {
+				wait = min(ra, apiMaxRetryAfter)
+			}
+			_ = resp.Body.Close()
+		}
+		slog.Warn(
+			"Binance request failed, will retry",
+			"url", req.URL.Path,
+			"status", status,
+			"err", err,
+			"wait", wait,
+			"attempt", attempt,
+		)
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(wait):
+		}
+		backoff = min(backoff*2, apiMaxRetryBackoff)
 	}
 }
 
@@ -139,7 +205,7 @@ func (c *apiClient) getExchangeInfo(ctx context.Context) ([]domain.ExchangeSymbo
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doWithRetry(req)
 	if err != nil {
 		return nil, fmt.Errorf("http: %w", err)
 	}
@@ -253,8 +319,8 @@ func (c *apiClient) getCandlesPage(
 		q := url.Values{}
 		q.Set("symbol", string(req.Symbol))
 		q.Set("interval", string(req.Interval))
-		q.Set("startTime", strconv.FormatInt(req.From.UnixMilli(), 10))
-		q.Set("endTime", strconv.FormatInt(req.To.UnixMilli()-1, 10))
+		q.Set("startTime", strconv.FormatInt(max(0, req.From.UnixMilli()), 10))
+		q.Set("endTime", strconv.FormatInt(max(0, req.To.UnixMilli()-1), 10))
 		q.Set("limit", strconv.FormatInt(int64(limit), 10))
 		u := "https://data-api.binance.vision/api/v3/klines?" + q.Encode()
 		r, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -262,7 +328,7 @@ func (c *apiClient) getCandlesPage(
 			yield(domain.Candle{}, fmt.Errorf("create klines request: %w", err))
 			return
 		}
-		resp, err := c.httpClient.Do(r)
+		resp, err := c.doWithRetry(r)
 		if err != nil {
 			yield(domain.Candle{}, fmt.Errorf("klines request: %w", err))
 			return
@@ -298,16 +364,12 @@ func (c *apiClient) getCandlesPage(
 }
 
 func (c *apiClient) aliveSymbol(ctx context.Context, symbol domain.Symbol) (bool, error) {
+	_, err := c.getExchangeInfo(ctx) // Ensure symbol list is fetched and isn't expired
+	if err != nil {
+		return false, err
+	}
 	c.exchangeInfoMu.Lock()
 	defer c.exchangeInfoMu.Unlock()
-	if c.exchangeInfoData == nil || c.exchangeInfoData.expired() {
-		c.exchangeInfoMu.Unlock()
-		_, err := c.getExchangeInfo(ctx)
-		c.exchangeInfoMu.Lock()
-		if err != nil {
-			return false, err
-		}
-	}
 	_, ok := c.exchangeInfoData.symbolsMap[symbol]
 	return ok, nil
 }

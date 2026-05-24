@@ -80,7 +80,10 @@ func (a *Adapter) AllSymbols(ctx context.Context, cached []domain.ExchangeSymbol
 		return nil, fmt.Errorf("get exchange symbols: %w", err)
 	}
 	collectAssetNames(symbols, knownAssets, symbolMap)
-	collectAssetNames(cached, knownAssets, symbolMap)
+	for _, s := range cached {
+		knownAssets[s.BaseAsset] = struct{}{}
+		knownAssets[s.QuoteAsset] = struct{}{}
+	}
 	s3Symbols, err := a.s3Client.listSymbols(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list s3 symbols: %w", err)
@@ -101,6 +104,22 @@ func (a *Adapter) AllSymbols(ctx context.Context, cached []domain.ExchangeSymbol
 			BaseAsset:  base,
 			QuoteAsset: quote,
 			Status:     domain.SymbolStatusDelisted,
+		}
+	}
+	for _, symbol := range cached {
+		_, ok := symbolMap[symbol.Symbol]
+		if ok {
+			continue
+		}
+		symbolMap[symbol.Symbol] = domain.ExchangeSymbol{
+			Exchange:    exchangeName,
+			Symbol:      symbol.Symbol,
+			BaseAsset:   symbol.BaseAsset,
+			QuoteAsset:  symbol.QuoteAsset,
+			Status:      domain.SymbolStatusDelisted,
+			TickSize:    symbol.TickSize,
+			StepSize:    symbol.StepSize,
+			MinNotional: symbol.MinNotional,
 		}
 	}
 	out := make([]domain.ExchangeSymbol, 0, len(symbolMap))

@@ -178,7 +178,7 @@ func (i *CandleIngester) consumeCandlesOnce(in <-chan []domain.Candle) (bool, er
 	if err := i.CandleWriter.SaveCandles(ctx, candles); err != nil {
 		return true, fmt.Errorf("save candles: %w", err)
 	}
-	return true, ctx.Err()
+	return true, nil
 }
 
 func (i *CandleIngester) consumeCandles(in <-chan []domain.Candle) error {
